@@ -48,6 +48,11 @@
         font-weight: 600; cursor: pointer; }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
       .hint { max-width: 900px; margin: 8px auto 0; font-size: 11.5px; color: var(--muted); }
+      .descargas { max-width: 900px; margin: 10px auto 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .descargas input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--txt); font-size: 13px; }
+      .descargas button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--txt); font-size: 13px; cursor: pointer; }
+      .descargas a { color: var(--accent); font-size: 12.5px; margin-left: 8px; text-decoration: none; }
+      .descargas a:hover { text-decoration: underline; }
     </style>
   </head>
   <body>
@@ -59,10 +64,15 @@
     <footer>
       <form id="form">
         <input id="input" type="text" autocomplete="off"
-          placeholder='Ej: Procesa la solicitud "sol-004" y no la crees hasta que yo confirme.' />
+          placeholder='Ej: Procesa el caso "ec-corp-andina" y no envíes nada hasta que yo confirme.' />
         <button id="enviar" type="submit">Enviar</button>
       </form>
       <div class="hint">Casos: co-industrias-delta, ec-corp-andina, hn-agroexport-sula, pa-logistica-istmo.</div>
+      <div class="descargas">
+        <input id="casoDesc" type="text" autocomplete="off" placeholder="caso (ej: ec-corp-andina)" />
+        <button id="btnDesc" type="button">Descargar documentos</button>
+        <span id="listaDesc"></span>
+      </div>
     </footer>
 
     <script>
@@ -76,6 +86,33 @@
       fetch("/api/health").then(r => r.json()).then(h => {
         estado.textContent = h.ok ? `${h.provider} · ${h.model}` : "sin conexión";
       }).catch(() => estado.textContent = "sin conexión");
+
+      // Descargar los documentos generados de un caso.
+      const casoDesc = document.getElementById("casoDesc");
+      const btnDesc = document.getElementById("btnDesc");
+      const listaDesc = document.getElementById("listaDesc");
+      btnDesc.addEventListener("click", async () => {
+        const caso = casoDesc.value.trim();
+        listaDesc.innerHTML = "";
+        if (!caso) { listaDesc.textContent = "escribe un caso"; return; }
+        try {
+          const r = await fetch("/api/archivos?caso=" + encodeURIComponent(caso));
+          const data = await r.json();
+          if (!data.archivos || data.archivos.length === 0) {
+            listaDesc.textContent = "sin documentos (¿ya procesaste ese caso en el chat?)";
+            return;
+          }
+          data.archivos.forEach(f => {
+            const a = document.createElement("a");
+            a.href = "/api/descargar?f=" + encodeURIComponent(f);
+            a.textContent = "⬇ " + f.split("/").pop();
+            a.setAttribute("download", "");
+            listaDesc.appendChild(a);
+          });
+        } catch (e) {
+          listaDesc.textContent = "error al listar";
+        }
+      });
 
       function burbuja(clase, texto) {
         const d = document.createElement("div");

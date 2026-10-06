@@ -2,8 +2,8 @@
 // Un comando lo levanta: bun run src/server.ts
 // La clave del modelo se lee de variable de entorno; nunca se expone en la API.
 
-import { join } from "node:path";
-import { readFileSync } from "node:fs";
+import { join, resolve, extname } from "node:path";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createAnthropicAdapter } from "./llm/anthropic.ts";
 import type { LlmAdapter, Mensaje } from "./llm/adapter.ts";
 import { correrTurno, cargarSystemPrompt, type ToolCallVisible } from "./agent.ts";
@@ -35,6 +35,30 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+const outDir = join(directory, "out");
+
+/** Lista (recursivamente) los archivos de una carpeta, como rutas relativas a out/. */
+function listarArchivos(dir: string, base: string): string[] {
+  const res: string[] = [];
+  if (!existsSync(dir)) return res;
+  for (const nombre of readdirSync(dir)) {
+    const full = join(dir, nombre);
+    if (statSync(full).isDirectory()) res.push(...listarArchivos(full, base));
+    else res.push(full.slice(base.length + 1));
+  }
+  return res;
+}
+
+function tipoContenido(f: string): string {
+  const ext = extname(f).toLowerCase();
+  if (ext === ".xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".md") return "text/markdown; charset=utf-8";
+  if (ext === ".txt") return "text/plain; charset=utf-8";
+  if (ext === ".json") return "application/json";
+  return "application/octet-stream";
 }
 
 Bun.serve({
@@ -76,6 +100,34 @@ Bun.serve({
     if (url.pathname.startsWith("/api/sessions/")) {
       const id = url.pathname.split("/").pop() ?? "";
       return json({ sessionId: id, historial: sesiones.get(id) ?? [] });
+    }
+
+    // Lista los documentos generados de un caso.
+    if (url.pathname === "/api/archivos") {
+      const caso = url.searchParams.get("caso") ?? "";
+      const archivos = listarArchivos(join(outDir, caso), outDir);
+      return json({ caso, archivos });
+    }
+
+    // Descarga un documento de out/ (validado para no salir de esa carpeta).
+    if (url.pathname === "/api/descargar") {
+      const f = url.searchParams.get("f") ?? "";
+      const target = resolve(outDir, f);
+      const raiz = resolve(outDir);
+      if (target !== raiz && !target.startsWith(raiz + "/")) {
+        return json({ error: "Ruta no permitida" }, 403);
+      }
+      if (!existsSync(target) || statSync(target).isDirectory()) {
+        return json({ error: "Archivo no encontrado" }, 404);
+      }
+      const datos = readFileSync(target);
+      const nombre = target.split("/").pop() ?? "archivo";
+      return new Response(datos, {
+        headers: {
+          "content-type": tipoContenido(target),
+          "content-disposition": `attachment; filename="${nombre}"`,
+        },
+      });
     }
 
     // Front estático.
